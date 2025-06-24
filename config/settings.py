@@ -1,0 +1,79 @@
+﻿# config/settings.py
+
+# ----------------------------
+# Горизонт планирования
+# ----------------------------
+horizon_days   = 12                # начальный горизонт в днях (1…8)
+hours_per_day  = 24               # число шагов в дне
+
+days           = list(range(1, horizon_days + 1))
+horizon_hours  = horizon_days * hours_per_day
+hours          = list(range(1, horizon_hours + 1))
+
+# ----------------------------
+# Определение кампаний и ресурсов
+# ----------------------------
+campaigns  = ['K1','K2','K3','K4','K5','K6']
+
+rolling1   = ['Resource1']
+rolling2   = ['Resource21','Resource22']
+rolling3   = ['Resource31']
+
+# ----------------------------
+# Нормативно-справочная информация (НСИ) для выплавки (этап 1)
+# (раньше было schedule_example) :contentReference[oaicite:0]{index=0}
+nsi_schedule = {
+    1: ('K1', 100),
+    2: ('K2', 300),
+    3: ('K3', 200),
+    4: ('K6', 700),
+    5: ('K4', 200),
+    6: ('K5', 600),
+    7: ('K3', 200),
+}
+
+# Справочные суммарные объёмы по выплавке (этап 1)
+# (раньше total_stage1) :contentReference[oaicite:1]{index=1}
+total_nsi = {k: 0 for k in campaigns}
+for d, (k, v) in nsi_schedule.items():
+    total_nsi[k] += v
+
+# ----------------------------
+# Производительность (тонн/день) на этапах 2 и 3
+# ----------------------------
+prod_rate = {
+    ('Resource1','K1'): 100,
+    ('Resource1','K2'): 100,
+    ('Resource1','K3'): 100,
+    ('Resource1','K4'): 100,
+    ('Resource1','K5'): 300,
+    ('Resource1','K6'): 300,
+    #
+    ('Resource21','K1'):100, ('Resource21','K2'):100,
+    ('Resource21','K3'):100, ('Resource21','K4'):100,
+    ('Resource21','K5'):300, ('Resource21','K6'):300,
+    #
+    ('Resource22','K1'):100, ('Resource22','K2'):100,
+    ('Resource22','K3'):100, ('Resource22','K4'):100,
+    ('Resource22','K5'):300, ('Resource22','K6'):300,
+    #
+    ('Resource31','K1'):100, ('Resource31','K2'):150,
+    ('Resource31','K3'):200, ('Resource31','K4'):200,
+    ('Resource31','K5'):200, ('Resource31','K6'):300,
+}
+
+# ----------------------------
+# Время охлаждения между этапами (дней)
+# ----------------------------
+cooling_time = {'K1':1,'K2':1,'K3':1,'K4':1,'K5':1,'K6':1}
+
+# ----------------------------
+# Время переналадки (часы) для каждого ресурса (этапы 2 и 3)
+# ----------------------------
+reconf_h = {'Resource1': 12, 'Resource21':12,'Resource22':12,'Resource31':12}
+reconf_d = {r: h/24.0 for r,h in reconf_h.items()}
+
+# ----------------------------
+# Штрафной множитель за перевалку в целевой функции
+# ----------------------------
+PEN = 10.0
