@@ -44,8 +44,6 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="models\rolling_model.py" />
-    <Content Include="output\report_20250624_1957.xlsx" />
-    <Content Include="output\report_full.html" />
     <Content Include="output\report_full.xlsx" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />

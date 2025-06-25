@@ -20,8 +20,7 @@ rolling2   = ['Resource21','Resource22']
 rolling3   = ['Resource31']
 
 # ----------------------------
-# Нормативно-справочная информация (НСИ) для выплавки (этап 1)
-# (раньше было schedule_example) :contentReference[oaicite:0]{index=0}
+# Нормативно-справочная информация (НСИ) для выплавки (этап 1):
 nsi_schedule = {
     1: ('K1', 100),
     2: ('K2', 300),
@@ -33,7 +32,7 @@ nsi_schedule = {
 }
 
 # Справочные суммарные объёмы по выплавке (этап 1)
-# (раньше total_stage1) :contentReference[oaicite:1]{index=1}
+# (раньше total_stage1)
 total_nsi = {k: 0 for k in campaigns}
 for d, (k, v) in nsi_schedule.items():
     total_nsi[k] += v
@@ -72,6 +71,14 @@ cooling_time = {'K1':1,'K2':1,'K3':1,'K4':1,'K5':1,'K6':1}
 # ----------------------------
 reconf_h = {'Resource1': 12, 'Resource21':12,'Resource22':12,'Resource31':12}
 reconf_d = {r: h/24.0 for r,h in reconf_h.items()}
+
+# Дни ремонтов: запрещено работать на агрегате r в день t
+repairs = {
+    'Resource1':   [3, 7],
+    'Resource21':  [2],
+    'Resource22':  [4, 5],
+    'Resource31':  []
+}
 
 # ----------------------------
 # Штрафной множитель за перевалку в целевой функции

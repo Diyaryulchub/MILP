@@ -9,7 +9,7 @@ from models.rolling_model import build_model
 
 def recommend_days(initial_days: int, limit_days: int = None) -> int | None:
     """
-    Рекомендует минимальный горизонт D (initial_days < D ≤ limit_days), в днях, при котором:
+    Рекомендует минимальный горизонт D (initial_days < D <= limit_days), в днях, при котором:
       1) модель решается со статусом Optimal,
       2) на этапе 3 прокатано ≥ NSI-объёмы (cfg.total_nsi).
     """

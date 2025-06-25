@@ -45,7 +45,7 @@ def solve_main() -> dict:
         for k in cfg.campaigns
     )
 
-    # 5) Рекомендация горизонта в днях (если не Optimal или не хватает тоннажа)
+    # 5) Рекомендация горизонта в днях (если не Optimal или не хватает тонн)
     #recommended_days = None
     #if status_str != "Optimal" or not enough:
     #    recommended_days = recommend_days(len(days), limit_days=60)
@@ -56,14 +56,22 @@ def solve_main() -> dict:
 
     # 6.0. Оптимизированная выплавка (этап 1)
     rolling1_schedule = {
-        (r, t): next((k for k in cfg.campaigns if pulp.value(x1[r][k][t]) > 0.5), "")
+        (r, t): (
+            "РЕМОНТ" if t in cfg.repairs.get(r, []) else
+            next((k for k in cfg.campaigns if pulp.value(x1[r][k][t]) > 0.5), "")
+        )
         for r in cfg.rolling1 for t in days
     }
+
     rolling1_tonnage = {
-        (r, t): sum(cfg.prod_rate[(r, k)] * pulp.value(x1[r][k][t])
-                   for k in cfg.campaigns)
+        (r, t): (
+            0.0 if rolling1_schedule[(r, t)] == "РЕМОНТ" else
+            sum(cfg.prod_rate[(r, k)] * pulp.value(x1[r][k][t])
+                for k in cfg.campaigns)
+        )
         for r in cfg.rolling1 for t in days
     }
+
     rolling1_reconf = {}
     for r in cfg.rolling1:
         sched = [rolling1_schedule[(r, t)] for t in days]
@@ -71,29 +79,46 @@ def solve_main() -> dict:
 
     # 6.1. Расписание и тоннаж прокатки этапа 2
     rolling2_schedule = {
-        (r, t): next((k for k in cfg.campaigns if pulp.value(x2[r][k][t]) > 0.5), "")
+        (r, t): (
+            "РЕМОНТ" if t in cfg.repairs.get(r, []) else
+            next((k for k in cfg.campaigns if pulp.value(x2[r][k][t]) > 0.5), "")
+        )
         for r in cfg.rolling2 for t in days
     }
+
     rolling2_tonnage = {
-        (r, t): sum(cfg.prod_rate[(r, k)] * pulp.value(x2[r][k][t])
-                   for k in cfg.campaigns)
+        (r, t): (
+            0.0 if rolling2_schedule[(r, t)] == "РЕМОНТ" else
+            sum(cfg.prod_rate[(r, k)] * pulp.value(x2[r][k][t])
+                for k in cfg.campaigns)
+        )
         for r in cfg.rolling2 for t in days
     }
+
     rolling2_reconf = {}
     for r in cfg.rolling2:
         sched = [rolling2_schedule[(r, t)] for t in days]
         rolling2_reconf[r] = count_reconfigurations(sched, cfg.reconf_h)
 
     # 6.2. Расписание и тоннаж прокатки этапа 3
+    
     rolling3_schedule = {
-        (r, t): next((k for k in cfg.campaigns if pulp.value(x3[r][k][t]) > 0.5), "")
+        (r, t): (
+            "РЕМОНТ" if t in cfg.repairs.get(r, []) else
+            next((k for k in cfg.campaigns if pulp.value(x3[r][k][t]) > 0.5), "")
+        )
         for r in cfg.rolling3 for t in days
     }
+
     rolling3_tonnage = {
-        (r, t): sum(cfg.prod_rate[(r, k)] * pulp.value(x3[r][k][t])
-                   for k in cfg.campaigns)
+        (r, t): (
+            0.0 if rolling3_schedule[(r, t)] == "РЕМОНТ" else
+            sum(cfg.prod_rate[(r, k)] * pulp.value(x3[r][k][t])
+                for k in cfg.campaigns)
+        )
         for r in cfg.rolling3 for t in days
     }
+
     rolling3_reconf = {}
     for r in cfg.rolling3:
         sched = [rolling3_schedule[(r, t)] for t in days]
@@ -164,4 +189,4 @@ if __name__ == "__main__":
     res = solve_main()
     print("Статус:", res["status_str"])
     if not res["enough"]:
-        print("Не хватает тоннажа, рекомендовано дней:", res["recommended_days"])
+        print("Не хватает тонн, рекомендовано дней:", res["recommended_days"])

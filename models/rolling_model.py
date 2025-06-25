@@ -9,10 +9,13 @@ from config.settings import (
     prod_rate,
     reconf_d,
     cooling_time,
-    PEN,
+    PEN, repairs,
     total_nsi
 )
 
+# x1, x2, x3 — бинарные переменные: 1, если кампания k выполняется на ресурсе r в день t на этапе 1, 2 или 3
+# y1, y2, y3 — бинарные переменные: 1, если между днями t и t+1 на ресурсе r произошла смена кампании с k1 на k2 (перевалка)
+# u1, u2, u3 — бинарные переменные: 1, если ресурс r был задействован хотя бы один день на соответствующем этапе
 
 def build_model(days_horizon: list[int]):
     """
@@ -73,6 +76,13 @@ def build_model(days_horizon: list[int]):
             <= total_nsi[k]
         ), f"Stage1_NSI_Limit_{k}"
 
+    # 1.5 Нельзя выплавлять в ремонт
+    for r in rolling1:
+        for t in days_horizon:
+            if t in repairs.get(r, []):
+                for k in campaigns:
+                    m += x1[r][k][t] == 0, f"Stage1_Repair_{r}_{t}_{k}"
+
     # ----------------------------
     # Этап 2: прокатка
     # ----------------------------
@@ -104,6 +114,13 @@ def build_model(days_horizon: list[int]):
                 pulp.lpSum(x2[r][k][t] for k in campaigns) <= 1
             ), f"Stage2_OneJob_{r}_{t}"
 
+    # 2.? В каждый момент времени одну кампанию обрабатывает максимум один ресурс (этап 2)
+    for k in campaigns:
+        for t in days_horizon:
+            m += (
+                pulp.lpSum(x2[r][k][t] for r in rolling2) <= 1
+            ), f"Stage2_SingleResourcePerCampaign_{k}_{t}"
+
     # 2.3 Учет охлаждения между этапами 1 и 2
     for r in rolling2:
         for k in campaigns:
@@ -133,13 +150,20 @@ def build_model(days_horizon: list[int]):
                         >= x2[r][k1][t] + x2[r][k2][t+1] - 1
                     ), f"Stage2_Reconf_{r}_{k1}_to_{k2}_{t}"
 
-    # 2.5 Агрегат этапа 2 задействован ⇔ работал хоть раз
+    # 2.5 Агрегат этапа 2 задействован, если работал хоть раз
     for r in rolling2:
         total_act2 = pulp.lpSum(
             x2[r][k][t] for k in campaigns for t in days_horizon
         )
         m += (u2[r] <= total_act2), f"Stage2_UseUpper_{r}"
         m += (u2[r] >= total_act2/len(days_horizon)), f"Stage2_UseLower_{r}"
+    
+    # 2.6 Нельзя выплавлять в ремонт
+    for r in rolling2:
+       for t in days_horizon:
+           if t in repairs.get(r, []):
+               for k in campaigns:
+                    m += x2[r][k][t] == 0, f"Stage2_Repair_{r}_{t}_{k}"
 
     # ----------------------------
     # Этап 3: прокатка
@@ -194,6 +218,13 @@ def build_model(days_horizon: list[int]):
         )
         m += (u3[r] <= total_act3), f"Stage3_UseUpper_{r}"
         m += (u3[r] >= total_act3/len(days_horizon)), f"Stage3_UseLower_{r}"
+
+    # 3.5 Нельзя выплавлять в ремонт
+    for r in rolling3:
+        for t in days_horizon:
+            if t in repairs.get(r, []):
+                for k in campaigns:
+                    m += x3[r][k][t] == 0, f"Stage3_Repair_{r}_{t}_{k}"
 
     # ----------------------------
     # Целевая функция
