@@ -1,4 +1,4 @@
-﻿# data/processing.py
+﻿# Здесь почти ничего не используется. Зачатки для перехода в часы
 
 from config.settings import (
     nsi_schedule,

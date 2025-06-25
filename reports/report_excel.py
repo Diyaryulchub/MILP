@@ -1,4 +1,4 @@
-﻿# reports/report_excel.py
+﻿# Построение отчета
 
 import os
 import pandas as pd
@@ -102,7 +102,7 @@ def write_excel_report(
             sheet.write(row, 1 + i, ton)
         row += 2
 
-        # Оптимизированная выплавка (этап 1)
+        # Выплавка этап 1
         sheet.write(row, 0, "Выплавка (этап 1)"); row += 1
         sheet.write(row, 0, "День")
         for i, d in enumerate(days):
@@ -111,11 +111,13 @@ def write_excel_report(
         for r in rolling1:
             sheet.write(row, 0, f"{r} (код)")
             for i, d in enumerate(days):
-                sheet.write(row, 1 + i, rolling1_schedule.get((r, d), ""))
+                code = rolling1_schedule.get((r, d), "")
+                sheet.write(row, 1 + i, "РЕМОНТ" if code == "РЕМОНТ" else code)
             row += 1
             sheet.write(row, 0, f"{r} (т)")
             for i, d in enumerate(days):
-                sheet.write(row, 1 + i, rolling1_tonnage.get((r, d), 0.0))
+                ton = 0.0 if code == "РЕМОНТ" else rolling1_tonnage.get((r, d), 0.0)
+                sheet.write(row, 1 + i, ton)
             row += 1
             sheet.write(row, 0, f"{int(rolling1_reconf.get(r, 0))} ч перевалок")
             row += 1
@@ -124,10 +126,15 @@ def write_excel_report(
         # Прокатка этапа 2
         for r in rolling2:
             sheet.write(row, 0, f"{r} (код)")
-            for i, d in enumerate(days): sheet.write(row, 1 + i, rolling2_schedule[(r, d)])
+            for i, d in enumerate(days):
+                val = rolling2_schedule.get((r, d), "")
+                sheet.write(row, 1 + i, "РЕМОНТ" if val == "РЕМОНТ" else val)
             row += 1
             sheet.write(row, 0, f"{r} (т)")
-            for i, d in enumerate(days): sheet.write(row, 1 + i, rolling2_tonnage[(r, d)])
+            for i, d in enumerate(days):
+                is_repair = rolling2_schedule.get((r, d), "") == "РЕМОНТ"
+                tonnage = 0.0 if is_repair else rolling2_tonnage.get((r, d), 0.0)
+                sheet.write(row, 1 + i, tonnage)
             row += 1
             sheet.write(row, 0, f"{int(rolling2_reconf[r])} ч перевалок")
             row += 1
@@ -136,10 +143,15 @@ def write_excel_report(
         # Прокатка этапа 3
         for r in rolling3:
             sheet.write(row, 0, f"{r} (код)")
-            for i, d in enumerate(days): sheet.write(row, 1 + i, rolling3_schedule[(r, d)])
+            for i, d in enumerate(days):
+                val = rolling3_schedule.get((r, d), "")
+                sheet.write(row, 1 + i, "РЕМОНТ" if val == "РЕМОНТ" else val)
             row += 1
             sheet.write(row, 0, f"{r} (т)")
-            for i, d in enumerate(days): sheet.write(row, 1 + i, rolling3_tonnage[(r, d)])
+            for i, d in enumerate(days):
+                is_repair = rolling3_schedule.get((r, d), "") == "РЕМОНТ"
+                tonnage = 0.0 if is_repair else rolling3_tonnage.get((r, d), 0.0)
+                sheet.write(row, 1 + i, tonnage)
             row += 1
             sheet.write(row, 0, f"{int(rolling3_reconf[r])} ч перевалок")
             row += 1
