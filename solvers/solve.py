@@ -25,8 +25,8 @@ def solve_main() -> dict:
     days = cfg.days  # [1, 2, ..., horizon_days]
 
     # 2) Построение и решение модели
-    model, x1, x2, x3, y1, y2, y3, u1, u2, u3 = build_model(days)
-    solver = PULP_CBC_CMD(msg=True, timeLimit=5)
+    model, x1, x2, x3, y1, y2, y3, u1, u2, u3, z1, z2, z3 = build_model(days)
+    solver = PULP_CBC_CMD(msg=True, timeLimit=60)
     status_code = model.solve(solver)
     status_str  = LpStatus[status_code]
 
@@ -63,6 +63,30 @@ def solve_main() -> dict:
         for r in cfg.rolling1 for t in days
     }
 
+    from datetime import timedelta
+
+    # --- Разметка перевалки по длительности ---
+    for r in cfg.rolling1:
+        for t in days:
+            # Если на этом дне началась перевалка (смена кампании)
+            for k1 in cfg.campaigns:
+                for k2 in cfg.campaigns:
+                    if k1 == k2:
+                        continue
+                    # Если была смена кампании с k1 на k2 в день t
+                    if t < len(days) and pulp.value(y1[r][k1][k2][t]) > 0.5:
+                        duration = cfg.reconf_matrix[r][(k1, k2)]  # в часах
+                        full_days = duration // 24
+                        partial = duration % 24
+                        for dt in range(1, full_days + 1):
+                            t_shift = t + dt
+                            if t_shift in days:
+                                rolling1_schedule[(r, t_shift)] = "ПЕРЕВАЛКА"
+                        # Если перевалка занимает нецелое число дней
+                        if partial and (t + full_days + 1) in days:
+                            rolling1_schedule[(r, t + full_days + 1)] = "ПЕРЕВАЛКА"
+
+
     rolling1_tonnage = {
         (r, t): (
             0.0 if rolling1_schedule[(r, t)] == "РЕМОНТ" else
@@ -75,7 +99,15 @@ def solve_main() -> dict:
     rolling1_reconf = {}
     for r in cfg.rolling1:
         sched = [rolling1_schedule[(r, t)] for t in days]
-        rolling1_reconf[r] = count_reconfigurations(sched, cfg.reconf_h)
+        rolling1_reconf[r] = count_reconfigurations(sched, cfg.reconf_matrix[r])
+
+    # Отметка: если z1[r][t] = 1 это день перевалки
+    for r in cfg.rolling1:
+        for t in days:
+            zval = pulp.value(z1[r][t])
+            if zval is not None and zval > 0.5:
+                rolling1_schedule[(r, t)] = "ПЕРЕВАЛКА"
+
 
     # 6.1. Расписание и тоннаж прокатки этапа 2
     rolling2_schedule = {
@@ -85,6 +117,25 @@ def solve_main() -> dict:
         )
         for r in cfg.rolling2 for t in days
     }
+
+    # --- Разметка перевалки по длительности для этапа 2 ---
+    for r in cfg.rolling2:
+        for t in days:
+            for k1 in cfg.campaigns:
+                for k2 in cfg.campaigns:
+                    if k1 == k2:
+                        continue
+                    if t < len(days) and pulp.value(y2[r][k1][k2][t]) > 0.5:
+                        duration = cfg.reconf_matrix[r][(k1, k2)]  # в часах
+                        full_days = duration // 24
+                        partial = duration % 24
+                        for dt in range(1, full_days + 1):
+                            t_shift = t + dt
+                            if t_shift in days:
+                                rolling2_schedule[(r, t_shift)] = "ПЕРЕВАЛКА"
+                        if partial and (t + full_days + 1) in days:
+                            rolling2_schedule[(r, t + full_days + 1)] = "ПЕРЕВАЛКА"
+
 
     rolling2_tonnage = {
         (r, t): (
@@ -98,7 +149,15 @@ def solve_main() -> dict:
     rolling2_reconf = {}
     for r in cfg.rolling2:
         sched = [rolling2_schedule[(r, t)] for t in days]
-        rolling2_reconf[r] = count_reconfigurations(sched, cfg.reconf_h)
+        rolling2_reconf[r] = count_reconfigurations(sched, cfg.reconf_matrix[r])
+
+    # Отметка: если z2[r][t] = 1 это день перевалки
+    for r in cfg.rolling2:
+        for t in days:
+            zval = pulp.value(z2[r][t])
+            if zval is not None and zval > 0.5:
+                rolling2_schedule[(r, t)] = "ПЕРЕВАЛКА"
+
 
     # 6.2. Расписание и тоннаж прокатки этапа 3
     
@@ -109,6 +168,24 @@ def solve_main() -> dict:
         )
         for r in cfg.rolling3 for t in days
     }
+    # --- Разметка перевалки по длительности для этапа 3 ---
+    for r in cfg.rolling3:
+        for t in days:
+            for k1 in cfg.campaigns:
+                for k2 in cfg.campaigns:
+                    if k1 == k2:
+                        continue
+                    if t < len(days) and pulp.value(y3[r][k1][k2][t]) > 0.5:
+                        duration = cfg.reconf_matrix[r][(k1, k2)]  # в часах
+                        full_days = duration // 24
+                        partial = duration % 24
+                        for dt in range(1, full_days + 1):
+                            t_shift = t + dt
+                            if t_shift in days:
+                                rolling3_schedule[(r, t_shift)] = "ПЕРЕВАЛКА"
+                        if partial and (t + full_days + 1) in days:
+                            rolling3_schedule[(r, t + full_days + 1)] = "ПЕРЕВАЛКА"
+
 
     rolling3_tonnage = {
         (r, t): (
@@ -122,7 +199,15 @@ def solve_main() -> dict:
     rolling3_reconf = {}
     for r in cfg.rolling3:
         sched = [rolling3_schedule[(r, t)] for t in days]
-        rolling3_reconf[r] = count_reconfigurations(sched, cfg.reconf_h)
+        rolling3_reconf[r] = count_reconfigurations(sched, cfg.reconf_matrix[r])
+
+    # Отметка: если z3[r][t] = 1 это день перевалки
+    for r in cfg.rolling3:
+        for t in days:
+            zval = pulp.value(z3[r][t])
+            if zval is not None and zval > 0.5:
+                rolling3_schedule[(r, t)] = "ПЕРЕВАЛКА"
+
 
     # 6.3. Финальная метрика
     total_reconf = round(
@@ -173,6 +258,7 @@ def solve_main() -> dict:
         "x1": x1, "x2": x2, "x3": x3,
         "y1": y1, "y2": y2, "y3": y3,
         "u1": u1, "u2": u2, "u3": u3,
+        "z1": z1, "z2": z2, "z3": z3,
         "rolling1_schedule": rolling1_schedule,
         "rolling1_tonnage": rolling1_tonnage,
         "rolling1_reconf": rolling1_reconf,

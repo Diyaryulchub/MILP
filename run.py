@@ -38,11 +38,8 @@ def run_and_report():
 
     write_excel_report(
         path=path,
-        prod_rate1=cfg.prod_rate,
         prod_rate=cfg.prod_rate,
         cooling_time=cfg.cooling_time,
-        reconf_h1=cfg.reconf_h,
-        reconf_h=cfg.reconf_h,
         nsi_schedule=cfg.nsi_schedule,
         total_nsi=cfg.total_nsi,
         metrics=metrics,
