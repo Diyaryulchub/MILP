@@ -37,7 +37,6 @@ def build_model(days_horizon: list[int]):
     z1 = pulp.LpVariable.dicts('z1', (rolling1, days_horizon), cat='Binary')
 
     # 1.1 Ограничение: на каждом агрегате — не более одной кампании в день
-    # ("Параллельные агрегаты: кампании выполняются независимо (синхронизация не требуется).")
     for r in rolling1:
         for t in days_horizon:
             m += pulp.lpSum(x1[r][k][t] for k in campaigns) <= 1, f"Stage1_OneJob_{r}_{t}"
@@ -80,7 +79,7 @@ def build_model(days_horizon: list[int]):
             for k in campaigns:
                 m += x1[r][k][t] <= 1 - z1[r][t], f"Stage1_NoJobOnReconf_{r}_{k}_{t}"
 
-    # 1.7 Ограничение: тэги перевалки на несколько дней (по длительности из reconf_matrix)
+    # 1.7 Ограничение: пометки перевалки на несколько дней (по длительности из reconf_matrix)
     # ("Учитывать длительность переналадки при смене кампаний на одном агрегате.")
     for r in rolling1:
         for t in days_horizon[1:]:
@@ -123,13 +122,13 @@ def build_model(days_horizon: list[int]):
     z2 = pulp.LpVariable.dicts('z2', (rolling2, days_horizon), cat='Binary')
 
     # 2.1 Ограничение: баланс материала между этапами
-    # ("Кампания запускается, только если в НЗП достаточно ингредиентов.")
+    # ("Кампания запускается, только если в достаточно ингредиентов.")
     for k in campaigns:
         m += (pulp.lpSum(x2[r][k][t]*prod_rate[(r,k)] for r in rolling2 for t in days_horizon)
               <= pulp.lpSum(x1[r1][k][t1]*prod_rate[(r1,k)] for r1 in rolling1 for t1 in days_horizon)
              ), f"Stage2_MaterialLimit_{k}"
 
-    # 2.2 Ограничение: один агрегат — одна кампания в день (см. 1.1)
+    # 2.2 Ограничение: один агрегат — одна кампания в день
     for r in rolling2:
         for t in days_horizon:
             m += pulp.lpSum(x2[r][k][t] for k in campaigns) <= 1, f"Stage2_OneJob_{r}_{t}"
@@ -181,7 +180,7 @@ def build_model(days_horizon: list[int]):
             for k in campaigns:
                 m += x2[r][k][t] <= 1 - z2[r][t], f"Stage2_NoJobOnReconf_{r}_{k}_{t}"
 
-    # 2.8 Ограничение: тэги перевалки (см. 1.7)
+    # 2.8 Ограничение: пометки перевалки (см. 1.7)
     for r in rolling2:
         for t in days_horizon[1:]:
             for k1 in campaigns:
@@ -263,7 +262,7 @@ def build_model(days_horizon: list[int]):
             for k in campaigns:
                 m += x3[r][k][t] <= 1 - z3[r][t], f"Stage3_NoJobOnReconf_{r}_{k}_{t}"
 
-    # 3.7 Ограничение: тэги перевалки (см. 1.7)
+    # 3.7 Ограничение: метки перевалки (см. 1.7)
     for r in rolling3:
         for t in days_horizon[1:]:
             for k1 in campaigns:
