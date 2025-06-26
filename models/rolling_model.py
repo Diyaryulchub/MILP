@@ -135,20 +135,31 @@ def build_model(days_horizon: list[int]):
 
     # 2.2.1 Ограничение: максимум один ресурс на кампанию в день
     # ("Параллельные агрегаты: кампании выполняются независимо ...")
+    #for k in campaigns:
+        #for t in days_horizon:
+            #m += pulp.lpSum(x2[r][k][t] for r in rolling2) <= 1, f"Stage2_SingleResourcePerCampaign_{k}_{t}"
     for k in campaigns:
         for t in days_horizon:
-            m += pulp.lpSum(x2[r][k][t] for r in rolling2) <= 1, f"Stage2_SingleResourcePerCampaign_{k}_{t}"
+            # Объём, который можно прокатать к этому дню на 2 этапе — это сумма всего выплавленного К6 на 1 этапе с учетом времени (охлаждение)
+            produced = pulp.lpSum(x2[r][k][tau]*prod_rate[(r,k)] for r in rolling2 for tau in days_horizon if tau<=t)
+            available = pulp.lpSum(
+                x1[r1][k][tau]*prod_rate[(r1,k)]
+                for r1 in rolling1 for tau in days_horizon
+                if tau + cooling_time[k] <= t
+            )
+            m += produced <= available, f"Stage2_Cooling_{k}_{t}"
+
 
     # 2.3 Ограничение: учёт охлаждения продукции между этапами
     # ("Макс. длительность хранения НЗП (опционально, на будущее).")
     for r in rolling2:
         for k in campaigns:
             for t in days_horizon:
-                produced = pulp.lpSum(x2[r][k][τ]*prod_rate[(r,k)] for τ in days_horizon if τ<=t)
+                produced = pulp.lpSum(x2[r][k][tau]*prod_rate[(r,k)] for tau in days_horizon if tau<=t)
                 available = pulp.lpSum(
-                    x1[r1][k][τ]*prod_rate[(r1,k)]
-                    for r1 in rolling1 for τ in days_horizon
-                    if τ + cooling_time[k] <= t
+                    x1[r1][k][tau]*prod_rate[(r1,k)]
+                    for r1 in rolling1 for tau in days_horizon
+                    if tau + cooling_time[k] <= t
                 )
                 m += produced <= available, f"Stage2_Cooling_{r}_{k}_{t}"
 
@@ -223,11 +234,11 @@ def build_model(days_horizon: list[int]):
     for k in campaigns:
         for t in days_horizon:
             avail2 = pulp.lpSum(
-                x2[r][k][τ]*prod_rate[(r,k)]
-                for r in rolling2 for τ in days_horizon
-                if τ + cooling_time[k] <= t
+                x2[r][k][tau]*prod_rate[(r,k)]
+                for r in rolling2 for tau in days_horizon
+                if tau + cooling_time[k] <= t
             )
-            used3 = pulp.lpSum(x3[r][k][τ]*prod_rate[(r,k)] for r in rolling3 for τ in days_horizon if τ<=t)
+            used3 = pulp.lpSum(x3[r][k][tau]*prod_rate[(r,k)] for r in rolling3 for tau in days_horizon if tau<=t)
             m += used3 <= avail2, f"Stage3_MaterialBalance_{k}_{t}"
 
     # 3.2 Ограничение: один агрегат — одна кампания в день (см. 1.1)

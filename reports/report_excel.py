@@ -1,8 +1,8 @@
-﻿# Построение отчета
-import math
+﻿import math
 import os
 import pandas as pd
 import config.settings as cfg
+
 def write_excel_report(
     path: str,
     prod_rate: dict[tuple[str, str], float],
@@ -10,7 +10,6 @@ def write_excel_report(
     nsi_schedule: dict[int, tuple[str, float]],
     total_nsi: dict[str, float],
     metrics: dict[str, float],
-    #recommended_days: int | None,
     days: list[int],
     campaigns: list[str],
     rolling1: list[str],
@@ -37,6 +36,18 @@ def write_excel_report(
       — прокатка этапов 2 и 3,
       — итоги по прокатке.
     """
+
+    # Цвета для кампаний
+    campaign_colors = {
+        'K1': '#FFA07A',  # светло-красный
+        'K2': '#90EE90',  # светло-зелёный
+        'K3': '#ADD8E6',  # светло-синий
+        'K4': '#FFFF99',  # светло-жёлтый
+        'K5': '#FFB6C1',  # розовый
+        'K6': '#C0C0C0',  # серый
+    }
+    formats = {}
+
     output_dir = os.path.dirname(path) or "output"
     os.makedirs(output_dir, exist_ok=True)
     full_path = os.path.join(output_dir, os.path.basename(path))
@@ -59,11 +70,6 @@ def write_excel_report(
             sheet.write(row, 0, name); sheet.write(row, 1, value); row += 1
         row += 1
 
-        # Рекомендованный горизонт
-        #sheet.write(row, 0, "Рекомендованный горизонт:")
-        #sheet.write(row, 1, recommended_days if recommended_days is not None else "Не найдено")
-        #row += 2
-
         # Нормативно-справочная информация (НСИ) по выплавке (этап 1)
         sheet.write(row, 0, "НСИ: выплавка"); row += 1
 
@@ -75,12 +81,11 @@ def write_excel_report(
 
         sheet.write(row, 0, "Тонны")
         for i, d in enumerate(days):
-            # Если данных по дню нет, выводим пустую ячейку, а не 0
             ton = nsi_schedule[d][1] if d in nsi_schedule else ""
             sheet.write(row, 1 + i, ton)
         row += 2
 
-        # Выплавка этап 1
+        # Выплавка этап 1 (цвет для кодов)
         sheet.write(row, 0, "Выплавка (этап 1)"); row += 1
         sheet.write(row, 0, "День")
         for i, d in enumerate(days):
@@ -90,7 +95,12 @@ def write_excel_report(
             sheet.write(row, 0, f"{r} (код)")
             for i, d in enumerate(days):
                 val = rolling1_schedule.get((r, d), "")
-                sheet.write(row, 1 + i, val if val not in ["РЕМОНТ", "ПЕРЕВАЛКА"] else val)
+                if val in campaign_colors:
+                    if val not in formats:
+                        formats[val] = writer.book.add_format({'bg_color': campaign_colors[val]})
+                    sheet.write(row, 1 + i, val, formats[val])
+                else:
+                    sheet.write(row, 1 + i, val if val in ["РЕМОНТ", "ПЕРЕВАЛКА"] else val)
             row += 1
             sheet.write(row, 0, f"{r} (т)")
             for i, d in enumerate(days):
@@ -103,12 +113,17 @@ def write_excel_report(
             row += 1
         row += 1
 
-        # Прокатка этапа 2
+        # Прокатка этапа 2 (цвет для кодов)
         for r in rolling2:
             sheet.write(row, 0, f"{r} (код)")
             for i, d in enumerate(days):
                 val = rolling2_schedule.get((r, d), "")
-                sheet.write(row, 1 + i, val if val not in ["РЕМОНТ", "ПЕРЕВАЛКА"] else val)
+                if val in campaign_colors:
+                    if val not in formats:
+                        formats[val] = writer.book.add_format({'bg_color': campaign_colors[val]})
+                    sheet.write(row, 1 + i, val, formats[val])
+                else:
+                    sheet.write(row, 1 + i, val if val in ["РЕМОНТ", "ПЕРЕВАЛКА"] else val)
             row += 1
             sheet.write(row, 0, f"{r} (т)")
             for i, d in enumerate(days):
@@ -121,12 +136,17 @@ def write_excel_report(
             row += 1
         row += 1
 
-        # Прокатка этапа 3
+        # Прокатка этапа 3 (цвет для кодов)
         for r in rolling3:
             sheet.write(row, 0, f"{r} (код)")
             for i, d in enumerate(days):
                 val = rolling3_schedule.get((r, d), "")
-                sheet.write(row, 1 + i, val if val not in ["РЕМОНТ", "ПЕРЕВАЛКА"] else val)
+                if val in campaign_colors:
+                    if val not in formats:
+                        formats[val] = writer.book.add_format({'bg_color': campaign_colors[val]})
+                    sheet.write(row, 1 + i, val, formats[val])
+                else:
+                    sheet.write(row, 1 + i, val if val in ["РЕМОНТ", "ПЕРЕВАЛКА"] else val)
             row += 1
             sheet.write(row, 0, f"{r} (т)")
             for i, d in enumerate(days):
@@ -139,7 +159,7 @@ def write_excel_report(
             row += 1
         row += 1
 
-            # Ограничения (из ТЗ)
+        # Ограничения (из ТЗ)
         sheet.write(row, 0, "ОГРАНИЧЕНИЯ:"); row += 1
         for c in [
             "Горизонт планирования: до выполнения всех кампаний.",
