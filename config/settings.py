@@ -63,16 +63,16 @@ cooling_time = {'K1':1,'K2':1,'K3':1,'K4':1,'K5':1,'K6':1}
 # Время переналадки между кампаниями (в часах)
 reconf_matrix = {
     'Resource1': {
-        (k1,k2): 48 for k1 in campaigns for k2 in campaigns if k1!=k2
+        (k1,k2): 24 for k1 in campaigns for k2 in campaigns if k1!=k2
     },
     'Resource21': {
-        (k1,k2): 48 for k1 in campaigns for k2 in campaigns if k1!=k2
+        (k1,k2): 24 for k1 in campaigns for k2 in campaigns if k1!=k2
     },
     'Resource22': {
-        (k1,k2): 48 for k1 in campaigns for k2 in campaigns if k1!=k2
+        (k1,k2): 24 for k1 in campaigns for k2 in campaigns if k1!=k2
     },
     'Resource31': {
-        (k1,k2): 48 for k1 in campaigns for k2 in campaigns if k1!=k2
+        (k1,k2): 24 for k1 in campaigns for k2 in campaigns if k1!=k2
     },
 }
 
@@ -120,7 +120,7 @@ reconf_matrix = {
 repairs = {
     'Resource1':   [],
     'Resource21':  [],
-    'Resource22':  [1,2,3,4,5,6,7,8],
+    'Resource22':  [],
     'Resource31':  []
 }
 
