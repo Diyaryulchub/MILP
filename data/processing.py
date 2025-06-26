@@ -1,13 +1,13 @@
 ﻿# Здесь почти ничего не используется. Зачатки для перехода в часы
+import math
 
 from config.settings import (
     nsi_schedule,
     campaigns,
     prod_rate,
     cooling_time,
-    reconf_h,
+    reconf_matrix,
     hours_per_day,
-    reconf_d
 )
 
 def build_schedule_h(
@@ -153,31 +153,36 @@ schedule_h     = build_schedule_h(nsi_schedule)
 total_stage1  = compute_total_stage1(schedule_h, campaigns)
 prod_rate_h    = compute_prod_rate_h(prod_rate, hours_per_day)
 cooling_time_h = compute_cooling_time_h(cooling_time, hours_per_day)
-reconf_pairs   = build_reconf_pair(campaigns, min(reconf_h.values()))
+#reconf_pairs   = build_reconf_pair(campaigns, min(reconf_matrix.values()))
 
-def count_reconfigurations(schedule: list[str], reconf_h: dict[str, float]) -> float:
+def count_reconfigurations(
+    schedule: list[str],
+    reconf_matrix: dict[tuple[str, str], float]
+) -> float:
     """
-    Считает суммарное время переналадок для расписания кампаний по дням,
-    пропуская «нулевые» дни и не считая последнюю висячую кампанию.
-
-    :param schedule: список длины N, где schedule[d] = имя кампании в день d или "" для простоя
-    :param reconf_h: словарь, дающий время переналадки для каждой кампании
-    :return: суммарное время переналадок
+    Считает суммарное время переналадок по расписанию:
+      берёт каждую пару соседних дней с реальными кампаниями (из списка campaigns)
+      и суммирует часы из reconf_matrix[(camp1, camp2)].
     """
     total_reconf = 0.0
     N = len(schedule)
 
-    for i, camp in enumerate(schedule):
-        if not camp:
+    for i in range(N - 1):
+        a = schedule[i]
+        # пропускаем дни ремонта, простоя и сами дни "ПЕРЕВАЛКА"
+        if a not in campaigns:
             continue
 
-        # ищем следующий ненулевой день
+        # ищем следующий день, где schedule[j] тоже реальный код кампании
         j = i + 1
-        while j < N and schedule[j] == "":
+        while j < N and schedule[j] not in campaigns:
             j += 1
 
-        # если после camp всё-таки нашлась другая кампания — считаем переналадку
         if j < N:
-            total_reconf += reconf_h.get(camp, 0.0)
+            b = schedule[j]
+            if b != a:
+                total_reconf += reconf_matrix.get((a, b), 0.0)
 
     return total_reconf
+
+

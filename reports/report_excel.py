@@ -1,15 +1,12 @@
 ﻿# Построение отчета
-
+import math
 import os
 import pandas as pd
-
+import config.settings as cfg
 def write_excel_report(
     path: str,
-    prod_rate1: dict[tuple[str, str], float],
     prod_rate: dict[tuple[str, str], float],
     cooling_time: dict[str, int],
-    reconf_h1: dict[str, int],
-    reconf_h: dict[str, int],
     nsi_schedule: dict[int, tuple[str, float]],
     total_nsi: dict[str, float],
     metrics: dict[str, float],
@@ -51,11 +48,8 @@ def write_excel_report(
 
         # Параметры задачи
         sheet.write(row, 0, "ПАРАМЕТРЫ ЗАДАЧИ:"); row += 1
-        sheet.write(row, 0, "prod_rate1 (этап 1):");         sheet.write(row, 1, str(prod_rate1)); row += 1
-        sheet.write(row, 0, "prod_rate (этапы 2/3):");       sheet.write(row, 1, str(prod_rate));  row += 1
+        sheet.write(row, 0, "prod_rate (этапы 1/2/3):");    sheet.write(row, 1, str(prod_rate));  row += 1
         sheet.write(row, 0, "cooling_time:");               sheet.write(row, 1, str(cooling_time)); row += 1
-        sheet.write(row, 0, "reconf_h1 (этап 1):");         sheet.write(row, 1, str(reconf_h1));   row += 1
-        sheet.write(row, 0, "reconf_h (этапы 2/3):");       sheet.write(row, 1, str(reconf_h));    row += 1
         sheet.write(row, 0, "nsi_schedule (НСИ выплавки):");sheet.write(row, 1, str(nsi_schedule));row += 1
         sheet.write(row, 0, "total_nsi (объемы НСИ):");     sheet.write(row, 1, str(total_nsi));   row += 2
 
@@ -111,15 +105,17 @@ def write_excel_report(
         for r in rolling1:
             sheet.write(row, 0, f"{r} (код)")
             for i, d in enumerate(days):
-                code = rolling1_schedule.get((r, d), "")
-                sheet.write(row, 1 + i, "РЕМОНТ" if code == "РЕМОНТ" else code)
+                val = rolling1_schedule.get((r, d), "")
+                sheet.write(row, 1 + i, val if val not in ["РЕМОНТ", "ПЕРЕВАЛКА"] else val)
             row += 1
             sheet.write(row, 0, f"{r} (т)")
             for i, d in enumerate(days):
-                ton = 0.0 if code == "РЕМОНТ" else rolling1_tonnage.get((r, d), 0.0)
+                val = rolling1_schedule.get((r, d), "")
+                ton = 0.0 if val in ["РЕМОНТ", "ПЕРЕВАЛКА"] else rolling1_tonnage.get((r, d), 0.0)
                 sheet.write(row, 1 + i, ton)
             row += 1
-            sheet.write(row, 0, f"{int(rolling1_reconf.get(r, 0))} ч перевалок")
+            days_reconf = math.ceil(rolling1_reconf.get(r, 0) / cfg.hours_per_day)
+            sheet.write(row, 0, f"{days_reconf} дн перевалок")
             row += 1
         row += 1
 
@@ -128,15 +124,16 @@ def write_excel_report(
             sheet.write(row, 0, f"{r} (код)")
             for i, d in enumerate(days):
                 val = rolling2_schedule.get((r, d), "")
-                sheet.write(row, 1 + i, "РЕМОНТ" if val == "РЕМОНТ" else val)
+                sheet.write(row, 1 + i, val if val not in ["РЕМОНТ", "ПЕРЕВАЛКА"] else val)
             row += 1
             sheet.write(row, 0, f"{r} (т)")
             for i, d in enumerate(days):
-                is_repair = rolling2_schedule.get((r, d), "") == "РЕМОНТ"
-                tonnage = 0.0 if is_repair else rolling2_tonnage.get((r, d), 0.0)
-                sheet.write(row, 1 + i, tonnage)
+                val = rolling2_schedule.get((r, d), "")
+                ton = 0.0 if val in ["РЕМОНТ", "ПЕРЕВАЛКА"] else rolling2_tonnage.get((r, d), 0.0)
+                sheet.write(row, 1 + i, ton)
             row += 1
-            sheet.write(row, 0, f"{int(rolling2_reconf[r])} ч перевалок")
+            days_reconf = math.ceil(rolling2_reconf.get(r, 0) / cfg.hours_per_day)
+            sheet.write(row, 0, f"{days_reconf} дн перевалок")
             row += 1
         row += 1
 
@@ -145,21 +142,17 @@ def write_excel_report(
             sheet.write(row, 0, f"{r} (код)")
             for i, d in enumerate(days):
                 val = rolling3_schedule.get((r, d), "")
-                sheet.write(row, 1 + i, "РЕМОНТ" if val == "РЕМОНТ" else val)
+                sheet.write(row, 1 + i, val if val not in ["РЕМОНТ", "ПЕРЕВАЛКА"] else val)
             row += 1
             sheet.write(row, 0, f"{r} (т)")
             for i, d in enumerate(days):
-                is_repair = rolling3_schedule.get((r, d), "") == "РЕМОНТ"
-                tonnage = 0.0 if is_repair else rolling3_tonnage.get((r, d), 0.0)
-                sheet.write(row, 1 + i, tonnage)
+                val = rolling3_schedule.get((r, d), "")
+                ton = 0.0 if val in ["РЕМОНТ", "ПЕРЕВАЛКА"] else rolling3_tonnage.get((r, d), 0.0)
+                sheet.write(row, 1 + i, ton)
             row += 1
-            sheet.write(row, 0, f"{int(rolling3_reconf[r])} ч перевалок")
+            days_reconf = math.ceil(rolling3_reconf.get(r, 0) / cfg.hours_per_day)
+            sheet.write(row, 0, f"{days_reconf} дн перевалок")
             row += 1
         row += 1
-
-        # Итог: всего прокатано по кампаниям
-        sheet.write(row, 0, "Всего прокатано (этап 3):"); row += 1
-        for k in campaigns:
-            sheet.write(row, 0, k); sheet.write(row, 1, rolled_total_3[k]); row += 1
 
     print(f"Отчет сохранён в {full_path}")
