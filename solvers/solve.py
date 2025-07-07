@@ -1,278 +1,183 @@
 ﻿# solve.py
 
 import pulp
-from pulp import LpStatus, PULP_CBC_CMD
+from pulp import LpStatus, PULP_CBC_CMD, value
 import pandas as pd
+import math
 
 import config.settings as cfg
-from data.processing import count_reconfigurations
 from models.rolling_model import build_model
-from solvers.recommend_days import recommend_days
+from data.processing import count_reconfigurations
+
+def _extract_stage(days: list[int],
+                   aggs: list[str],
+                   x: dict,
+                   z: dict,
+                   y: dict,
+                   repairs: dict[str, list[int]]
+                  ) -> tuple[
+                      dict[tuple[str,int], str],
+                      dict[tuple[str,int], float],
+                      dict[str, float]
+                  ]:
+    """
+    Извлекает для одной стадии:
+      — расписание (код/РЕМОНТ/ПЕРЕВАЛКА или пусто),
+      — тоннаж,
+      — суммарное время переналадок (часов) на каждом агрегате.
+    """
+    schedule: dict[tuple[str,int], str] = {}
+    tonnage:  dict[tuple[str,int], float] = {}
+    reconf:   dict[str, float] = {r: 0.0 for r in aggs}
+
+    # Базовая раскладка: ремонт, флаг перевалки, кампании
+    for r in aggs:
+        for t in days:
+            if t in repairs.get(r, []):
+                schedule[(r, t)] = "РЕМОНТ"
+                tonnage[(r, t)] = 0.0
+            elif value(z[r][t]) > 0.5:
+                schedule[(r, t)] = "ПЕРЕВАЛКА"
+                tonnage[(r, t)] = 0.0
+            else:
+                found = False
+                for k in cfg.campaigns:
+                    if value(x[r][k][t]) > 0.5:
+                        schedule[(r, t)] = k
+                        tonnage[(r, t)] = cfg.prod_rate[(r, k)]
+                        found = True
+                        break
+                if not found:
+                    schedule[(r, t)] = ""
+                    tonnage[(r, t)] = 0.0
+
+        # Суммируем время переналадок по y
+        for k1 in cfg.campaigns:
+            for k2 in cfg.campaigns:
+                if k1 == k2: continue
+                for t in days[:-1]:
+                    if value(y[r][k1][k2][t]) > 0.5:
+                        reconf[r] += cfg.reconf_matrix[r][(k1, k2)]
+
+    # Собираем задачи перевалок из y
+    reconf_tasks: list[tuple[str,str,str,int,int]] = []
+    for r in aggs:
+        for k1 in cfg.campaigns:
+            for k2 in cfg.campaigns:
+                if k1 == k2: continue
+                for t in days[:-1]:
+                    if value(y[r][k1][k2][t]) > 0.5:
+                        hours    = cfg.reconf_matrix[r][(k1, k2)]
+                        days_req = math.ceil(hours / cfg.hours_per_day)
+                        start    = t + 1
+                        end      = start + days_req - 1
+                        reconf_tasks.append((r, k1, k2, start, end))
+
+    # Убираем все старые метки "ПЕРЕВАЛКА"
+    #for (r, t), v in list(schedule.items()):
+        #if v == "ПЕРЕВАЛКА":
+            #schedule[(r, t)] = ""
+
+    # Склеиваем блоки перевалок как "ПЕРЕВАЛКА k1→k2"
+    for r, k1, k2, start, end in reconf_tasks:
+        for tt in range(start, end + 1):
+            if (r, tt) in schedule:
+                schedule[(r, tt)] = f"ПЕРЕВАЛКА {k1}→{k2}"
+                tonnage[(r, tt)] = 0.0
+
+    return schedule, tonnage, reconf
+
 
 def solve_main() -> dict:
     """
-    Решает полную трёхступенчатую модель по дням (cfg.days).
-    Возвращает словарь с результатами:
+    Решает модель для произвольного числа стадий и агрегатов из cfg.stage_aggs.
+    Возвращает словарь с результатами, включая backward‐compatibility keys:
       model, status_str, days,
-      rolled_total_3, enough, recommended_days,
-      x1, x2, x3, y1, y2, y3, u1, u2, u3,
-      rolling1_schedule, rolling1_tonnage, rolling1_reconf,
-      rolling2_schedule, rolling2_tonnage, rolling2_reconf,
-      rolling3_schedule, rolling3_tonnage, rolling3_reconf,
+      rolled_total_3, enough,
+      x_vars, y_vars, u_vars, z_vars,
+      schedules, tonnages, reconfs,
+      rolling1_schedule, rolling1_tonnage, rolling1_reconf, ...
       metrics
     """
-    # 1) Горизонт по дням
-    days = cfg.days  # [1, 2, ..., horizon_days]
+    days = cfg.days
 
-    # 2) Построение и решение модели
-    model, x1, x2, x3, y1, y2, y3, u1, u2, u3, z1, z2, z3 = build_model(days)
-    solver = PULP_CBC_CMD(msg=True, timeLimit=60)
-    status_code = model.solve(solver)
-    status_str  = LpStatus[status_code]
+    # 1) Построение и решение модели
+    model, x_vars, y_vars, u_vars, z_vars = build_model(days)
+    solver     = PULP_CBC_CMD(msg=True, timeLimit=60
+    ,gapRel=0.2
+    )
+    status     = model.solve(solver)
+    status_str = LpStatus[status]
 
-    # 3) Сколько прокатано на этапе 3 по кампаниям
-    rolled_total_3 = {
-        k: sum(
-            cfg.prod_rate[(r, k)] * pulp.value(x3[r][k][d])
-            for r in cfg.rolling3 for d in days
-        )
+    # 2) Итоговый тоннаж по кампаниям на последней стадии
+    final_stage = max(cfg.stage_aggs.keys())
+    rolled_total = {
+        k: sum(cfg.prod_rate[(r, k)] * value(x_vars[final_stage][r][k][d])
+               for r in cfg.stage_aggs[final_stage] for d in days)
         for k in cfg.campaigns
     }
+    enough = all(rolled_total[k] >= cfg.total_nsi[k] for k in cfg.campaigns)
 
-    # 4) Флаг «достаточно прокатано» (сравнение с НСИ выплавки)
-    enough = all(
-        rolled_total_3[k] >= cfg.total_nsi[k]
-        for k in cfg.campaigns
-    )
+    # 3) Извлечение расписания/тоннажа/перевалок для каждой стадии
+    schedules = {}
+    tonnages  = {}
+    reconfs    = {}
+    for stage, aggs in cfg.stage_aggs.items():
+        sched, ton, rec = _extract_stage(days, aggs,
+                                         x_vars[stage],
+                                         z_vars[stage],
+                                         y_vars[stage],
+                                         cfg.repairs)
+        schedules[stage] = sched
+        tonnages[stage]  = ton
+        reconfs[stage]   = rec
+        print(sched, ton, rec)
 
-    # 5) Рекомендация горизонта в днях (если не Optimal или не хватает тонн)
-    #recommended_days = None
-    #if status_str != "Optimal" or not enough:
-    #    recommended_days = recommend_days(len(days), limit_days=60)
-
-    # ----------------------------
-    # 6. Сбор решения и метрик
-    # ----------------------------
-
-    # 6.0. Оптимизированная выплавка (этап 1)
-    rolling1_schedule = {
-        (r, t): (
-            "РЕМОНТ" if t in cfg.repairs.get(r, []) else
-            next((k for k in cfg.campaigns if pulp.value(x1[r][k][t]) > 0.5), "")
-        )
-        for r in cfg.rolling1 for t in days
-    }
-
-    from datetime import timedelta
-
-    # --- Разметка перевалки по длительности ---
-    for r in cfg.rolling1:
-        for t in days:
-            # Если на этом дне началась перевалка (смена кампании)
-            for k1 in cfg.campaigns:
-                for k2 in cfg.campaigns:
-                    if k1 == k2:
-                        continue
-                    # Если была смена кампании с k1 на k2 в день t
-                    if t < len(days) and pulp.value(y1[r][k1][k2][t]) > 0.5:
-                        duration = cfg.reconf_matrix[r][(k1, k2)]  # в часах
-                        full_days = duration // 24
-                        partial = duration % 24
-                        for dt in range(1, full_days + 1):
-                            t_shift = t + dt
-                            if t_shift in days:
-                                rolling1_schedule[(r, t_shift)] = "ПЕРЕВАЛКА"
-                        # Если перевалка занимает нецелое число дней
-                        if partial and (t + full_days + 1) in days:
-                            rolling1_schedule[(r, t + full_days + 1)] = "ПЕРЕВАЛКА"
-
-
-    rolling1_tonnage = {
-        (r, t): (
-            0.0 if rolling1_schedule[(r, t)] == "РЕМОНТ" else
-            sum(cfg.prod_rate[(r, k)] * pulp.value(x1[r][k][t])
-                for k in cfg.campaigns)
-        )
-        for r in cfg.rolling1 for t in days
-    }
-
-    rolling1_reconf = {}
-    for r in cfg.rolling1:
-        sched = [rolling1_schedule[(r, t)] for t in days]
-        rolling1_reconf[r] = count_reconfigurations(sched, cfg.reconf_matrix[r])
-
-    # Отметка: если z1[r][t] = 1 это день перевалки
-    for r in cfg.rolling1:
-        for t in days:
-            zval = pulp.value(z1[r][t])
-            if zval is not None and zval > 0.5:
-                rolling1_schedule[(r, t)] = "ПЕРЕВАЛКА"
-
-
-    # 6.1. Расписание и тоннаж прокатки этапа 2
-    rolling2_schedule = {
-        (r, t): (
-            "РЕМОНТ" if t in cfg.repairs.get(r, []) else
-            next((k for k in cfg.campaigns if pulp.value(x2[r][k][t]) > 0.5), "")
-        )
-        for r in cfg.rolling2 for t in days
-    }
-
-    # --- Разметка перевалки по длительности для этапа 2 ---
-    for r in cfg.rolling2:
-        for t in days:
-            for k1 in cfg.campaigns:
-                for k2 in cfg.campaigns:
-                    if k1 == k2:
-                        continue
-                    if t < len(days) and pulp.value(y2[r][k1][k2][t]) > 0.5:
-                        duration = cfg.reconf_matrix[r][(k1, k2)]  # в часах
-                        full_days = duration // 24
-                        partial = duration % 24
-                        for dt in range(1, full_days + 1):
-                            t_shift = t + dt
-                            if t_shift in days:
-                                rolling2_schedule[(r, t_shift)] = "ПЕРЕВАЛКА"
-                        if partial and (t + full_days + 1) in days:
-                            rolling2_schedule[(r, t + full_days + 1)] = "ПЕРЕВАЛКА"
-
-
-    rolling2_tonnage = {
-        (r, t): (
-            0.0 if rolling2_schedule[(r, t)] == "РЕМОНТ" else
-            sum(cfg.prod_rate[(r, k)] * pulp.value(x2[r][k][t])
-                for k in cfg.campaigns)
-        )
-        for r in cfg.rolling2 for t in days
-    }
-
-    rolling2_reconf = {}
-    for r in cfg.rolling2:
-        sched = [rolling2_schedule[(r, t)] for t in days]
-        rolling2_reconf[r] = count_reconfigurations(sched, cfg.reconf_matrix[r])
-
-    # Отметка: если z2[r][t] = 1 это день перевалки
-    for r in cfg.rolling2:
-        for t in days:
-            zval = pulp.value(z2[r][t])
-            if zval is not None and zval > 0.5:
-                rolling2_schedule[(r, t)] = "ПЕРЕВАЛКА"
-
-
-    # 6.2. Расписание и тоннаж прокатки этапа 3
-    
-    rolling3_schedule = {
-        (r, t): (
-            "РЕМОНТ" if t in cfg.repairs.get(r, []) else
-            next((k for k in cfg.campaigns if pulp.value(x3[r][k][t]) > 0.5), "")
-        )
-        for r in cfg.rolling3 for t in days
-    }
-    # --- Разметка перевалки по длительности для этапа 3 ---
-    for r in cfg.rolling3:
-        for t in days:
-            for k1 in cfg.campaigns:
-                for k2 in cfg.campaigns:
-                    if k1 == k2:
-                        continue
-                    if t < len(days) and pulp.value(y3[r][k1][k2][t]) > 0.5:
-                        duration = cfg.reconf_matrix[r][(k1, k2)]  # в часах
-                        full_days = duration // 24
-                        partial = duration % 24
-                        for dt in range(1, full_days + 1):
-                            t_shift = t + dt
-                            if t_shift in days:
-                                rolling3_schedule[(r, t_shift)] = "ПЕРЕВАЛКА"
-                        if partial and (t + full_days + 1) in days:
-                            rolling3_schedule[(r, t + full_days + 1)] = "ПЕРЕВАЛКА"
-
-
-    rolling3_tonnage = {
-        (r, t): (
-            0.0 if rolling3_schedule[(r, t)] == "РЕМОНТ" else
-            sum(cfg.prod_rate[(r, k)] * pulp.value(x3[r][k][t])
-                for k in cfg.campaigns)
-        )
-        for r in cfg.rolling3 for t in days
-    }
-
-    rolling3_reconf = {}
-    for r in cfg.rolling3:
-        sched = [rolling3_schedule[(r, t)] for t in days]
-        rolling3_reconf[r] = count_reconfigurations(sched, cfg.reconf_matrix[r])
-
-    # Отметка: если z3[r][t] = 1 это день перевалки
-    for r in cfg.rolling3:
-        for t in days:
-            zval = pulp.value(z3[r][t])
-            if zval is not None and zval > 0.5:
-                rolling3_schedule[(r, t)] = "ПЕРЕВАЛКА"
-
-
-    # 6.3. Финальная метрика
-    total_reconf = round(
-        sum(rolling1_reconf.values())
-      + sum(rolling2_reconf.values())
-      + sum(rolling3_reconf.values()), 2
-    )
-    total_prod_stage1 = round(
-        sum(
-            cfg.prod_rate[(r, k)] * pulp.value(x1[r][k][d])
-            for r in cfg.rolling1 for k in cfg.campaigns for d in days
-        ), 2
-    )
-    total_prod_3 = sum(rolled_total_3.values())
-    used_agg = (
-        sum(int(pulp.value(u1[r])) for r in cfg.rolling1)
-      + sum(int(pulp.value(u2[r])) for r in cfg.rolling2)
-      + sum(int(pulp.value(u3[r])) for r in cfg.rolling3)
-    )
-    loads = [
-        sum(int(pulp.value(x1[r][k][d])) for k in cfg.campaigns for d in days)
-        for r in cfg.rolling1
-    ] + [
-        sum(int(pulp.value(x2[r][k][d])) for k in cfg.campaigns for d in days)
-        for r in cfg.rolling2
-    ] + [
-        sum(int(pulp.value(x3[r][k][d])) for k in cfg.campaigns for d in days)
-        for r in cfg.rolling3
-    ]
-    evenness = round(pd.Series(loads).std(), 2) if loads else 0
+    # 4) Метрики
+    total_reconf = sum(sum(v.values()) for v in reconfs.values())
+    total_prod1  = sum(cfg.prod_rate[(r, k)] * value(x_vars[1][r][k][d])
+                       for r in cfg.stage_aggs[1] for k in cfg.campaigns for d in days)
+    total_prodN  = sum(rolled_total.values())
+    used_aggs    = sum(int(value(u_vars[s][r]))
+                       for s in cfg.stage_aggs for r in cfg.stage_aggs[s])
+    loads = [sum(int(value(x_vars[s][r][k][d]))
+                 for k in cfg.campaigns for d in days)
+             for s in cfg.stage_aggs for r in cfg.stage_aggs[s]]
+    evenness = round(pd.Series(loads).std(), 2) if loads else 0.0
 
     metrics = {
-        "Суммарно перевалок, ч": total_reconf,
-        "Суммарно выплавлено, т": total_prod_stage1,
-        "Суммарно прокатано, т": total_prod_3,
-        "Задействовано агрегатов": used_agg,
-        "Отклонение загрузки": evenness
+        "Суммарно перевалок, ч":    round(total_reconf, 2),
+        "Суммарно выплавлено, т":   round(total_prod1, 2),
+        "Суммарно прокатано, т":    round(total_prodN, 2),
+        "Задействовано агрегатов":  used_aggs,
+        "Отклонение загрузки":      evenness
     }
 
-    # 7) Итоговый словарь
-    return {
+    # 5) Собираем результат и backward-compatible keys
+    result = {
         "model": model,
         "status_str": status_str,
         "days": days,
-        "rolled_total_3": rolled_total_3,
+        "rolled_total_3": rolled_total,
         "enough": enough,
-        #"recommended_days": recommended_days,
-        "x1": x1, "x2": x2, "x3": x3,
-        "y1": y1, "y2": y2, "y3": y3,
-        "u1": u1, "u2": u2, "u3": u3,
-        "z1": z1, "z2": z2, "z3": z3,
-        "rolling1_schedule": rolling1_schedule,
-        "rolling1_tonnage": rolling1_tonnage,
-        "rolling1_reconf": rolling1_reconf,
-        "rolling2_schedule": rolling2_schedule,
-        "rolling2_tonnage": rolling2_tonnage,
-        "rolling2_reconf": rolling2_reconf,
-        "rolling3_schedule": rolling3_schedule,
-        "rolling3_tonnage": rolling3_tonnage,
-        "rolling3_reconf": rolling3_reconf,
+        "x_vars": x_vars,
+        "y_vars": y_vars,
+        "u_vars": u_vars,
+        "z_vars": z_vars,
+        "schedules": schedules,
+        "tonnages": tonnages,
+        "reconfs": reconfs,
         "metrics": metrics,
     }
+    # backward compatibility: rolling{n}_schedule, rolling{n}_tonnage, rolling{n}_reconf
+    for stage in cfg.stage_aggs:
+        result[f"rolling{stage}_schedule"] = schedules[stage]
+        result[f"rolling{stage}_tonnage"]  = tonnages[stage]
+        result[f"rolling{stage}_reconf"]   = reconfs[stage]
+
+    return result
+
 
 if __name__ == "__main__":
     res = solve_main()
     print("Статус:", res["status_str"])
-    if not res["enough"]:
-        print("Не хватает тонн, рекомендовано дней:", res["recommended_days"])

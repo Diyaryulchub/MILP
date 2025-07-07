@@ -1,5 +1,5 @@
 ﻿# solvers/recommend_days.py
-
+'''
 import math
 import pulp
 from pulp import LpStatus, PULP_CBC_CMD
@@ -68,3 +68,4 @@ def recommend_days(initial_days: int, limit_days: int = None) -> int | None:
             left = mid + 1
 
     return best
+'''
